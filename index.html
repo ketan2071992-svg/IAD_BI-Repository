@@ -6,6 +6,12 @@
     <title>BI Repository</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase SDKs (Compat version) - Loaded before React and your script -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
     <!-- React and ReactDOM -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -16,14 +22,14 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body { font-family: 'Inter', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body class="bg-slate-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- 1. CONFIGURATION (REPLACE THIS) ---
-        // Copy your Firebase Config object from the Firebase Console
+        // --- 1. CONFIGURATION ---
         const firebaseConfig = {
             apiKey: "",
             authDomain: "",
@@ -33,21 +39,19 @@
             appId: ""
         };
 
-        // --- 2. IMPORTS FROM CDN ---
+        // Initialize Firebase immediately inside the script block
+        // Using window.firebase to ensure it's accessed globally
+        if (!window.firebase.apps.length) {
+            window.firebase.initializeApp(firebaseConfig);
+        }
+        const auth = window.firebase.auth();
+        const db = window.firebase.firestore();
+
         const { useState, useEffect, useMemo } = React;
-        const { initializeApp } = window.FirebaseApp;
-        const { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc } = window.FirebaseFirestore;
-        const { getAuth, signInAnonymously, onAuthStateChanged } = window.FirebaseAuth;
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        // Helper for Lucide Icons in React
         const Icon = ({ name, ...props }) => {
-            const LucideIcon = lucide[name];
-            return LucideIcon ? <LucideIcon {...props} /> : null;
+            const LucideIcon = window.lucide[name];
+            return LucideIcon ? <LucideIcon {...props} /> : <window.lucide.AlertCircle {...props} />;
         };
 
         const getAppId = () => {
@@ -66,132 +70,303 @@
             const [isSaving, setIsSaving] = useState(false);
             const [copied, setCopied] = useState(false);
 
-            // Modals
-            const [activeModal, setActiveModal] = useState(null); // 'folder', 'dashboard', 'share', 'settings', 'delete', 'view'
+            const [activeModal, setActiveModal] = useState(null); 
             const [selectedItem, setSelectedItem] = useState(null);
 
-            // Forms
             const [formData, setFormData] = useState({ name: '', url: '', baseUrl: '' });
 
             useEffect(() => {
-                signInAnonymously(auth);
-                const unsubscribe = onAuthStateChanged(auth, setUser);
+                const unsubscribe = auth.onAuthStateChanged((u) => {
+                    if (!u) {
+                        auth.signInAnonymously().catch(err => console.error("Auth Error:", err));
+                    }
+                    setUser(u);
+                });
                 return () => unsubscribe();
             }, []);
 
             useEffect(() => {
                 if (!user) return;
-                const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repository_items');
-                const unsubItems = onSnapshot(itemsRef, (snap) => {
+
+                const itemsCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items');
+                
+                const unsubItems = itemsCollection.onSnapshot((snap) => {
                     setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
+                }, (err) => {
+                    console.error("Firestore Items Error:", err);
+                    setLoading(false);
                 });
-                const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
-                const unsubConfig = onSnapshot(configRef, (d) => {
-                    if (d.exists()) {
-                        setCloudBaseUrl(d.data().baseUrl || '');
-                        setFormData(prev => ({ ...prev, baseUrl: d.data().baseUrl || '' }));
+
+                const configDoc = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings');
+                
+                const unsubConfig = configDoc.onSnapshot((d) => {
+                    if (d.exists) {
+                        const url = d.data().baseUrl || '';
+                        setCloudBaseUrl(url);
+                        setFormData(prev => ({ ...prev, baseUrl: url }));
                     }
-                });
+                }, (err) => console.error("Firestore Config Error:", err));
+
                 return () => { unsubItems(); unsubConfig(); };
             }, [user]);
 
             const shareUrl = useMemo(() => {
-                if (cloudBaseUrl) return `${cloudBaseUrl.split('?')[0]}?id=${appId}`;
+                if (cloudBaseUrl) {
+                    const cleanBase = cloudBaseUrl.split('?')[0].replace(/\/$/, "");
+                    return `${cleanBase}?id=${appId}`;
+                }
                 return `${window.location.origin}${window.location.pathname}?id=${appId}`;
             }, [cloudBaseUrl]);
 
             const currentItems = items.filter(i => i.parentId === currentFolderId)
                 .sort((a, b) => a.type === 'folder' && b.type !== 'folder' ? -1 : a.name.localeCompare(b.name));
 
-            const saveUrl = async (e) => {
+            const breadcrumbs = useMemo(() => {
+                const trail = [];
+                let curr = currentFolderId;
+                while (curr) {
+                    const f = items.find(i => i.id === curr);
+                    if (f) { trail.unshift(f); curr = f.parentId; }
+                    else break;
+                }
+                return trail;
+            }, [items, currentFolderId]);
+
+            const saveSettings = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), { baseUrl: formData.baseUrl }, { merge: true });
-                setIsSaving(false);
-                setActiveModal(null);
+                try {
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings')
+                        .set({ baseUrl: formData.baseUrl }, { merge: true });
+                    setActiveModal(null);
+                } catch (err) {
+                    console.error("Save Settings Error:", err);
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
             const addFolder = async (e) => {
                 e.preventDefault();
-                const id = crypto.randomUUID();
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'repository_items', id), {
-                    type: 'folder', name: formData.name, parentId: currentFolderId, createdAt: new Date().toISOString()
-                });
-                setFormData({ ...formData, name: '' });
-                setActiveModal(null);
+                if (!formData.name.trim()) return;
+                setIsSaving(true);
+                try {
+                    const id = crypto.randomUUID();
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id)
+                        .set({
+                            type: 'folder', 
+                            name: formData.name, 
+                            parentId: currentFolderId, 
+                            createdAt: new Date().toISOString()
+                        });
+                    setFormData({ ...formData, name: '' });
+                    setActiveModal(null);
+                } catch (err) {
+                    console.error("Add Folder Error:", err);
+                } finally {
+                    setIsSaving(false);
+                }
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Loading Cloud Workspace...</div>;
+            const addDashboard = async (e) => {
+                e.preventDefault();
+                if (!formData.name.trim() || !formData.url.trim()) return;
+                setIsSaving(true);
+                try {
+                    const id = crypto.randomUUID();
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id)
+                        .set({
+                            type: 'dashboard', 
+                            name: formData.name, 
+                            url: formData.url, 
+                            parentId: currentFolderId, 
+                            createdAt: new Date().toISOString()
+                        });
+                    setFormData({ ...formData, name: '', url: '' });
+                    setActiveModal(null);
+                } catch (err) {
+                    console.error("Add Dashboard Error:", err);
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            const handleDelete = async () => {
+                if (!selectedItem) return;
+                setIsSaving(true);
+                try {
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(selectedItem.id).delete();
+                    setSelectedItem(null);
+                    setActiveModal(null);
+                } catch (err) {
+                    console.error("Delete Error:", err);
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            if (loading) return (
+                <div className="h-screen flex flex-col items-center justify-center gap-4 bg-white">
+                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="font-bold text-slate-400 animate-pulse">Syncing with Cloud...</p>
+                </div>
+            );
 
             return (
-                <div className="min-h-screen">
-                    <header className="bg-white border-b px-8 h-16 flex items-center justify-between sticky top-0 z-10">
-                        <div className="flex items-center gap-2 font-bold text-xl"><Icon name="LayoutDashboard" className="text-blue-600" /> BI Repo</div>
+                <div className="min-h-screen flex flex-col">
+                    <header className="bg-white border-b px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-blue-600 p-2 rounded-lg"><Icon name="Layout" className="text-white" size={20} /></div>
+                            <h1 className="font-bold text-xl tracking-tight text-slate-800">BI Repository</h1>
+                        </div>
                         <div className="flex gap-2">
-                            <button onClick={() => setActiveModal('share')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Icon name="Share2" size={16} /> Share</button>
-                            <button onClick={() => setActiveModal('settings')} className="p-2 text-slate-400"><Icon name="Settings" size={20} /></button>
+                            <button onClick={() => setActiveModal('share')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors shadow-md active:scale-95"><Icon name="Share2" size={16} /> Share</button>
+                            <button onClick={() => setActiveModal('settings')} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"><Icon name="Settings" size={20} /></button>
                         </div>
                     </header>
 
-                    <main className="max-w-6xl mx-auto p-8">
+                    <main className="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8">
                         {!cloudBaseUrl && (
-                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-sm flex items-center gap-2">
-                                <Icon name="AlertTriangle" className="text-amber-600" size={18} /> 
-                                Share link is not configured. <button onClick={() => setActiveModal('settings')} className="underline font-bold">Fix Now</button>
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-8 flex items-center gap-3">
+                                <Icon name="AlertTriangle" className="text-amber-600" size={20} /> 
+                                <div className="text-sm text-amber-800 flex-1">
+                                    <span className="font-bold">Share Link not set.</span> Visit settings to enable collaborative sharing.
+                                </div>
+                                <button onClick={() => setActiveModal('settings')} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-md">Settings</button>
                             </div>
                         )}
 
-                        <div className="flex justify-between items-center mb-8">
-                            <nav className="flex items-center gap-2 text-sm text-slate-500">
-                                <button onClick={() => setCurrentFolderId(null)} className="hover:text-blue-600">Root</button>
-                                {currentFolderId && <span className="text-slate-300">/ Folder View</span>}
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+                            <nav className="flex items-center gap-2 text-sm text-slate-500 no-scrollbar overflow-x-auto whitespace-nowrap">
+                                <button onClick={() => setCurrentFolderId(null)} className={`hover:text-blue-600 flex items-center gap-1 ${!currentFolderId ? 'font-bold text-blue-600' : ''}`}>
+                                    <Icon name="Home" size={14} /> Root
+                                </button>
+                                {breadcrumbs.map(f => (
+                                    <React.Fragment key={f.id}>
+                                        <Icon name="ChevronRight" size={14} className="text-slate-300" />
+                                        <button onClick={() => setCurrentFolderId(f.id)} className="hover:text-blue-600 max-w-[150px] truncate">{f.name}</button>
+                                    </React.Fragment>
+                                ))}
                             </nav>
                             <div className="flex gap-2">
-                                <button onClick={() => setActiveModal('folder')} className="bg-white border px-4 py-2 rounded-lg text-sm font-medium">New Folder</button>
-                                <button onClick={() => setActiveModal('dashboard')} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Add Report</button>
+                                <button onClick={() => setActiveModal('folder')} className="flex-1 md:flex-none bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">New Folder</button>
+                                <button onClick={() => setActiveModal('dashboard')} className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-lg active:scale-95">+ Add Report</button>
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                            {currentItems.map(item => (
-                                <div key={item.id} onClick={() => item.type === 'folder' ? setCurrentFolderId(item.id) : window.open(item.url, '_blank')}
-                                     className="bg-white border p-4 rounded-xl hover:border-blue-500 cursor-pointer flex items-center gap-4 group">
-                                    <div className={`p-3 rounded-lg ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                        <Icon name={item.type === 'folder' ? 'Folder' : 'BarChart2'} size={24} />
+                        {currentItems.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {currentItems.map(item => (
+                                    <div key={item.id} onClick={() => item.type === 'folder' ? setCurrentFolderId(item.id) : (setSelectedItem(item), setActiveModal('view'))}
+                                         className="bg-white border border-slate-200 p-5 rounded-2xl hover:border-blue-500 hover:shadow-xl transition-all cursor-pointer flex items-center gap-4 group relative">
+                                        <div className={`p-4 rounded-2xl ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                            <Icon name={item.type === 'folder' ? 'Folder' : 'BarChart2'} size={28} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-slate-800 truncate mb-1">{item.name}</div>
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.type === 'folder' ? 'Directory' : 'Report'}</div>
+                                        </div>
+                                        <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setActiveModal('delete'); }} 
+                                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                                            <Icon name="Trash2" size={16}/>
+                                        </button>
                                     </div>
-                                    <div className="flex-1 truncate font-bold text-sm">{item.name}</div>
-                                    <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setActiveModal('delete'); }} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="py-24 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-white">
+                                <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300">
+                                    <Icon name="Folder" size={40} />
                                 </div>
-                            ))}
-                        </div>
+                                <h3 className="text-xl font-bold text-slate-800 mb-2">No items here yet</h3>
+                                <p className="text-slate-500 text-sm mb-8">Organize your Power BI reports by creating folders or adding links.</p>
+                                <button onClick={() => setActiveModal('dashboard')} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Upload First Report</button>
+                            </div>
+                        )}
                     </main>
 
-                    {/* Simple Share Modal */}
-                    {activeModal === 'share' && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-                                <h2 className="font-bold text-lg mb-4">Access Link</h2>
-                                <input readOnly value={shareUrl} className="w-full p-3 bg-slate-50 border rounded-lg text-xs font-mono mb-4" />
-                                <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(()=>setCopied(false), 2000); }} 
-                                        className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl">
-                                    {copied ? 'Copied!' : 'Copy Link'}
-                                </button>
-                                <button onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-400 text-sm py-2">Close</button>
-                            </div>
-                        </div>
-                    )}
+                    {activeModal && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                                    <h2 className="font-bold text-slate-800 uppercase text-xs tracking-widest">
+                                        {activeModal === 'share' ? 'Collaborative Access' : activeModal === 'settings' ? 'Configure App' : activeModal === 'folder' ? 'Create Folder' : activeModal === 'dashboard' ? 'Add Report' : activeModal === 'delete' ? 'Warning' : 'Report Preview'}
+                                    </h2>
+                                    <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-slate-600"><Icon name="X" size={20}/></button>
+                                </div>
 
-                    {/* Settings Modal */}
-                    {activeModal === 'settings' && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-                            <form onSubmit={saveUrl} className="bg-white rounded-2xl p-6 w-full max-w-md">
-                                <h2 className="font-bold text-lg mb-4">Global Link Settings</h2>
-                                <p className="text-xs text-slate-500 mb-4">Paste your current browser URL here to fix the share link.</p>
-                                <input required value={formData.baseUrl} onChange={e => setFormData({...formData, baseUrl: e.target.value})} className="w-full p-3 border rounded-lg mb-4" placeholder="https://..." />
-                                <button className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl">Save & Sync</button>
-                                <button type="button" onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-400 text-sm">Cancel</button>
-                            </form>
+                                <div className="p-6">
+                                    {activeModal === 'share' && (
+                                        <div className="space-y-4">
+                                            <p className="text-sm text-slate-500">Share this link with your team to grant them access to this repository.</p>
+                                            <div className="relative">
+                                                <input readOnly value={shareUrl} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-600 pr-12" />
+                                                <Icon name="Link" className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                                            </div>
+                                            <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(()=>setCopied(false), 2000); }} 
+                                                    className={`w-full py-4 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 shadow-lg ${copied ? 'bg-green-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                                                {copied ? <Icon name="Check" size={18}/> : <Icon name="Copy" size={18}/>}
+                                                {copied ? 'Copied' : 'Copy Share Link'}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {activeModal === 'settings' && (
+                                        <form onSubmit={saveSettings} className="space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Hosted URL</label>
+                                                <input required value={formData.baseUrl} onChange={e => setFormData({...formData, baseUrl: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="https://myapp.vercel.app" />
+                                            </div>
+                                            <button disabled={isSaving} className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 transition-all flex items-center justify-center gap-2">
+                                                {isSaving && <Icon name="Loader" className="animate-spin" size={18} />} Save Config
+                                            </button>
+                                        </form>
+                                    )}
+
+                                    {activeModal === 'folder' && (
+                                        <form onSubmit={addFolder} className="space-y-4">
+                                            <input autoFocus required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Folder Name" />
+                                            <button disabled={isSaving} className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-lg">Create Directory</button>
+                                        </form>
+                                    )}
+
+                                    {activeModal === 'dashboard' && (
+                                        <form onSubmit={addDashboard} className="space-y-4">
+                                            <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Report Name" />
+                                            <input type="url" required value={formData.url} onChange={e => setFormData({...formData, url: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Power BI Link" />
+                                            <button disabled={isSaving} className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl shadow-lg">Save Report</button>
+                                        </form>
+                                    )}
+
+                                    {activeModal === 'delete' && (
+                                        <div className="text-center">
+                                            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                                <Icon name="AlertTriangle" size={32} />
+                                            </div>
+                                            <h3 className="font-bold text-lg text-slate-800 mb-2">Delete this item?</h3>
+                                            <div className="flex gap-3">
+                                                <button onClick={() => setActiveModal(null)} className="flex-1 py-3 text-slate-400 font-bold">Cancel</button>
+                                                <button onClick={handleDelete} className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-lg">Delete</button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {activeModal === 'view' && selectedItem && (
+                                        <div className="text-center">
+                                            <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                                                <Icon name="BarChart2" size={40} />
+                                            </div>
+                                            <h3 className="text-2xl font-bold text-slate-800 mb-2">{selectedItem.name}</h3>
+                                            <a href={selectedItem.url} target="_blank" rel="noopener noreferrer" 
+                                               className="block w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg flex items-center justify-center gap-2">
+                                                <Icon name="ExternalLink" size={18} /> Open Dashboard
+                                            </a>
+                                            <button onClick={() => setActiveModal(null)} className="w-full mt-4 text-slate-400 text-sm font-medium">Close</button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -200,29 +375,6 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-    </script>
-    
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    
-    <script>
-        // Compatibility layer to bridge the modular code to standard scripts
-        window.FirebaseApp = { initializeApp: firebase.initializeApp };
-        window.FirebaseFirestore = { 
-            getFirestore: firebase.firestore, 
-            collection: (db, ...path) => db.collection(path.join('/')),
-            doc: (db, ...path) => db.doc(path.join('/')),
-            onSnapshot: (ref, cb) => ref.onSnapshot(cb),
-            setDoc: (ref, data, opt) => ref.set(data, opt),
-            deleteDoc: (ref) => ref.delete()
-        };
-        window.FirebaseAuth = {
-            getAuth: firebase.auth,
-            signInAnonymously: (auth) => auth.signInAnonymously(),
-            onAuthStateChanged: (auth, cb) => auth.onAuthStateChanged(cb)
-        };
     </script>
 </body>
 </html>
