@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BI Repository</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React and ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX parsing -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- 1. CONFIGURATION (REPLACE THIS) ---
+        // Copy your Firebase Config object from the Firebase Console
+        const firebaseConfig = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+
+        // --- 2. IMPORTS FROM CDN ---
+        const { useState, useEffect, useMemo } = React;
+        const { initializeApp } = window.FirebaseApp;
+        const { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc } = window.FirebaseFirestore;
+        const { getAuth, signInAnonymously, onAuthStateChanged } = window.FirebaseAuth;
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Helper for Lucide Icons in React
+        const Icon = ({ name, ...props }) => {
+            const LucideIcon = lucide[name];
+            return LucideIcon ? <LucideIcon {...props} /> : null;
+        };
+
+        const getAppId = () => {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('id') || 'global-bi-repo';
+        };
+
+        const appId = getAppId();
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [items, setItems] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [currentFolderId, setCurrentFolderId] = useState(null);
+            const [cloudBaseUrl, setCloudBaseUrl] = useState('');
+            const [isSaving, setIsSaving] = useState(false);
+            const [copied, setCopied] = useState(false);
+
+            // Modals
+            const [activeModal, setActiveModal] = useState(null); // 'folder', 'dashboard', 'share', 'settings', 'delete', 'view'
+            const [selectedItem, setSelectedItem] = useState(null);
+
+            // Forms
+            const [formData, setFormData] = useState({ name: '', url: '', baseUrl: '' });
+
+            useEffect(() => {
+                signInAnonymously(auth);
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'repository_items');
+                const unsubItems = onSnapshot(itemsRef, (snap) => {
+                    setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setLoading(false);
+                });
+                const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+                const unsubConfig = onSnapshot(configRef, (d) => {
+                    if (d.exists()) {
+                        setCloudBaseUrl(d.data().baseUrl || '');
+                        setFormData(prev => ({ ...prev, baseUrl: d.data().baseUrl || '' }));
+                    }
+                });
+                return () => { unsubItems(); unsubConfig(); };
+            }, [user]);
+
+            const shareUrl = useMemo(() => {
+                if (cloudBaseUrl) return `${cloudBaseUrl.split('?')[0]}?id=${appId}`;
+                return `${window.location.origin}${window.location.pathname}?id=${appId}`;
+            }, [cloudBaseUrl]);
+
+            const currentItems = items.filter(i => i.parentId === currentFolderId)
+                .sort((a, b) => a.type === 'folder' && b.type !== 'folder' ? -1 : a.name.localeCompare(b.name));
+
+            const saveUrl = async (e) => {
+                e.preventDefault();
+                setIsSaving(true);
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings'), { baseUrl: formData.baseUrl }, { merge: true });
+                setIsSaving(false);
+                setActiveModal(null);
+            };
+
+            const addFolder = async (e) => {
+                e.preventDefault();
+                const id = crypto.randomUUID();
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'repository_items', id), {
+                    type: 'folder', name: formData.name, parentId: currentFolderId, createdAt: new Date().toISOString()
+                });
+                setFormData({ ...formData, name: '' });
+                setActiveModal(null);
+            };
+
+            if (loading) return <div className="h-screen flex items-center justify-center font-bold text-slate-400">Loading Cloud Workspace...</div>;
+
+            return (
+                <div className="min-h-screen">
+                    <header className="bg-white border-b px-8 h-16 flex items-center justify-between sticky top-0 z-10">
+                        <div className="flex items-center gap-2 font-bold text-xl"><Icon name="LayoutDashboard" className="text-blue-600" /> BI Repo</div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setActiveModal('share')} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2"><Icon name="Share2" size={16} /> Share</button>
+                            <button onClick={() => setActiveModal('settings')} className="p-2 text-slate-400"><Icon name="Settings" size={20} /></button>
+                        </div>
+                    </header>
+
+                    <main className="max-w-6xl mx-auto p-8">
+                        {!cloudBaseUrl && (
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-6 text-sm flex items-center gap-2">
+                                <Icon name="AlertTriangle" className="text-amber-600" size={18} /> 
+                                Share link is not configured. <button onClick={() => setActiveModal('settings')} className="underline font-bold">Fix Now</button>
+                            </div>
+                        )}
+
+                        <div className="flex justify-between items-center mb-8">
+                            <nav className="flex items-center gap-2 text-sm text-slate-500">
+                                <button onClick={() => setCurrentFolderId(null)} className="hover:text-blue-600">Root</button>
+                                {currentFolderId && <span className="text-slate-300">/ Folder View</span>}
+                            </nav>
+                            <div className="flex gap-2">
+                                <button onClick={() => setActiveModal('folder')} className="bg-white border px-4 py-2 rounded-lg text-sm font-medium">New Folder</button>
+                                <button onClick={() => setActiveModal('dashboard')} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium">+ Add Report</button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                            {currentItems.map(item => (
+                                <div key={item.id} onClick={() => item.type === 'folder' ? setCurrentFolderId(item.id) : window.open(item.url, '_blank')}
+                                     className="bg-white border p-4 rounded-xl hover:border-blue-500 cursor-pointer flex items-center gap-4 group">
+                                    <div className={`p-3 rounded-lg ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                        <Icon name={item.type === 'folder' ? 'Folder' : 'BarChart2'} size={24} />
+                                    </div>
+                                    <div className="flex-1 truncate font-bold text-sm">{item.name}</div>
+                                    <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setActiveModal('delete'); }} className="opacity-0 group-hover:opacity-100 p-1 text-slate-300 hover:text-red-500"><Icon name="Trash2" size={16}/></button>
+                                </div>
+                            ))}
+                        </div>
+                    </main>
+
+                    {/* Simple Share Modal */}
+                    {activeModal === 'share' && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                            <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+                                <h2 className="font-bold text-lg mb-4">Access Link</h2>
+                                <input readOnly value={shareUrl} className="w-full p-3 bg-slate-50 border rounded-lg text-xs font-mono mb-4" />
+                                <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(()=>setCopied(false), 2000); }} 
+                                        className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl">
+                                    {copied ? 'Copied!' : 'Copy Link'}
+                                </button>
+                                <button onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-400 text-sm py-2">Close</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Settings Modal */}
+                    {activeModal === 'settings' && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                            <form onSubmit={saveUrl} className="bg-white rounded-2xl p-6 w-full max-w-md">
+                                <h2 className="font-bold text-lg mb-4">Global Link Settings</h2>
+                                <p className="text-xs text-slate-500 mb-4">Paste your current browser URL here to fix the share link.</p>
+                                <input required value={formData.baseUrl} onChange={e => setFormData({...formData, baseUrl: e.target.value})} className="w-full p-3 border rounded-lg mb-4" placeholder="https://..." />
+                                <button className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl">Save & Sync</button>
+                                <button type="button" onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-400 text-sm">Cancel</button>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    
+    <script>
+        // Compatibility layer to bridge the modular code to standard scripts
+        window.FirebaseApp = { initializeApp: firebase.initializeApp };
+        window.FirebaseFirestore = { 
+            getFirestore: firebase.firestore, 
+            collection: (db, ...path) => db.collection(path.join('/')),
+            doc: (db, ...path) => db.doc(path.join('/')),
+            onSnapshot: (ref, cb) => ref.onSnapshot(cb),
+            setDoc: (ref, data, opt) => ref.set(data, opt),
+            deleteDoc: (ref) => ref.delete()
+        };
+        window.FirebaseAuth = {
+            getAuth: firebase.auth,
+            signInAnonymously: (auth) => auth.signInAnonymously(),
+            onAuthStateChanged: (auth, cb) => auth.onAuthStateChanged(cb)
+        };
+    </script>
+</body>
+</html>
