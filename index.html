@@ -117,13 +117,13 @@
             rootRef.collection('repository_items').onSnapshot(snap => {
                 state.items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 render();
-            });
+            }, err => console.error(err));
 
             // Listen for config
             rootRef.collection('config').doc('settings').onSnapshot(doc => {
                 if (doc.exists) state.config = doc.data();
                 render();
-            });
+            }, err => console.error(err));
         }
 
         // --- UI Logic ---
