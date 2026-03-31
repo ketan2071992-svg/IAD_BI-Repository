@@ -17,17 +17,22 @@
         .glass-effect { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
         .loader { border: 3px solid #f3f3f3; border-top: 3px solid #2563eb; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
 </head>
 <body class="bg-[#F8FAFC] text-slate-900">
     <div id="app" class="min-h-screen flex flex-col">
         <!-- Header -->
-        <header class="glass-effect border-b border-slate-200 px-6 h-16 flex items-center justify-between sticky top-0 z-40">
+        <header class="glass-effect border-b border-slate-200 px-6 h-16 flex items-center justify-between sticky top-0 z-40 shadow-sm">
             <div class="flex items-center gap-3">
                 <div class="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200">
                     <i data-lucide="layout-dashboard" class="text-white w-5 h-5"></i>
                 </div>
-                <h1 class="font-bold text-lg tracking-tight">BI Repository</h1>
+                <div>
+                    <h1 class="font-bold text-lg tracking-tight leading-none">BI Repository</h1>
+                    <span class="text-[10px] text-green-600 font-bold uppercase tracking-widest">Live Sync</span>
+                </div>
             </div>
             <div class="flex gap-2" id="header-actions">
                 <button onclick="toggleModal('share')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 transition-all active:scale-95 shadow-md">
@@ -40,24 +45,27 @@
         </header>
 
         <!-- Main Content -->
-        <main class="flex-1 max-w-6xl w-full mx-auto p-6">
-            <!-- Breadcrumbs -->
-            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <nav id="breadcrumbs" class="flex items-center gap-2 text-sm text-slate-500 overflow-x-auto whitespace-nowrap py-2">
+        <main class="flex-1 max-w-7xl w-full mx-auto p-6 md:p-8">
+            <!-- Breadcrumbs and Actions -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                <nav id="breadcrumbs" class="flex items-center gap-2 text-sm text-slate-500 overflow-x-auto no-scrollbar py-2 whitespace-nowrap">
                     <!-- Dynamic Breadcrumbs -->
                 </nav>
-                <div class="flex gap-2">
-                    <button onclick="toggleModal('folder')" class="bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">New Folder</button>
-                    <button onclick="toggleModal('dashboard')" class="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-lg">+ Add Report</button>
+                <div class="flex gap-3">
+                    <button onclick="toggleModal('folder')" class="flex-1 md:flex-none bg-white border border-slate-200 px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm">
+                        <i data-lucide="folder-plus" class="w-4 h-4 inline mr-2"></i>New Folder
+                    </button>
+                    <button onclick="toggleModal('dashboard')" class="flex-1 md:flex-none bg-slate-900 hover:bg-black text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg">
+                        <i data-lucide="plus" class="w-4 h-4 inline mr-2"></i>Add Report
+                    </button>
                 </div>
             </div>
 
             <!-- Grid Container -->
-            <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                <!-- Items will be injected here -->
+            <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
                 <div class="col-span-full py-20 flex flex-col items-center justify-center opacity-50">
                     <div class="loader mb-4"></div>
-                    <p>Loading repository...</p>
+                    <p class="font-medium">Connecting to repository...</p>
                 </div>
             </div>
         </main>
@@ -66,30 +74,27 @@
     <!-- Modals Container -->
     <div id="modal-overlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                <h2 id="modal-title" class="font-bold text-slate-800 uppercase text-[10px] tracking-widest">Modal</h2>
-                <button onclick="toggleModal(null)" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+            <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <h2 id="modal-title" class="font-bold text-slate-800 uppercase text-[11px] tracking-widest">Modal</h2>
+                <button onclick="toggleModal(null)" class="text-slate-400 hover:text-slate-600 bg-slate-50 p-1.5 rounded-lg transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
             </div>
-            <div id="modal-body" class="p-6">
-                <!-- Dynamic Modal Content -->
-            </div>
+            <div id="modal-body" class="p-6"></div>
         </div>
     </div>
 
     <script>
-        // --- State Management ---
         let state = {
             user: null,
             items: [],
             currentFolderId: null,
-            config: { baseUrl: '' },
-            isSaving: false
+            config: { baseUrl: localStorage.getItem('bi_repo_base_url') || '' }
         };
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'global-bi-repo';
         const firebaseConfig = JSON.parse(__firebase_config || '{}');
 
-        // --- Initialization ---
         async function init() {
             if (firebaseConfig.apiKey) {
                 firebase.initializeApp(firebaseConfig);
@@ -111,62 +116,76 @@
         }
 
         function setupListeners(db) {
-            const rootRef = db.collection('artifacts').doc(appId).collection('public').doc('data');
-            
-            // Listen for items
-            rootRef.collection('repository_items').onSnapshot(snap => {
+            const itemsRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items');
+            itemsRef.onSnapshot(snap => {
                 state.items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 render();
-            }, err => console.error(err));
-
-            // Listen for config
-            rootRef.collection('config').doc('settings').onSnapshot(doc => {
-                if (doc.exists) state.config = doc.data();
-                render();
-            }, err => console.error(err));
+            }, err => console.error("Firestore Error:", err));
+            render();
         }
 
-        // --- UI Logic ---
+        function navigateTo(id) {
+            state.currentFolderId = (id === 'null' || id === null) ? null : id;
+            render();
+        }
+
         function render() {
             const container = document.getElementById('grid-container');
             const breadcrumbNav = document.getElementById('breadcrumbs');
             
-            // Render Breadcrumbs
-            let crumbs = `<button onclick="navigateTo(null)" class="hover:text-blue-600 flex items-center gap-1 ${!state.currentFolderId ? 'font-bold text-blue-600' : ''}"><i data-lucide="home" class="w-3.5 h-3.5"></i> Root</button>`;
+            // Breadcrumbs
+            let crumbs = `<button onclick="navigateTo(null)" class="hover:text-blue-600 flex items-center gap-1.5 transition-colors ${!state.currentFolderId ? 'font-bold text-blue-600' : ''}">
+                <i data-lucide="home" class="w-4 h-4"></i> Root
+            </button>`;
+            
             if (state.currentFolderId) {
                 let current = state.currentFolderId;
                 let path = [];
-                while (current) {
+                let safety = 0;
+                while (current && safety < 15) {
                     const found = state.items.find(i => i.id === current);
-                    if (found) { path.unshift(found); current = found.parentId; } else break;
+                    if (found) { 
+                        path.unshift(found); 
+                        current = found.parentId; 
+                    } else break;
+                    safety++;
                 }
-                path.forEach(p => {
-                    crumbs += `<i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-300"></i><button onclick="navigateTo('${p.id}')" class="hover:text-blue-600 truncate max-w-[120px]">${p.name}</button>`;
+                path.forEach((p, idx) => {
+                    crumbs += `
+                        <i data-lucide="chevron-right" class="w-4 h-4 text-slate-300"></i>
+                        <button onclick="navigateTo('${p.id}')" class="hover:text-blue-600 transition-colors truncate max-w-[150px] ${idx === path.length - 1 ? 'font-bold text-blue-600' : ''}">
+                            ${p.name}
+                        </button>`;
                 });
             }
             breadcrumbNav.innerHTML = crumbs;
 
-            // Filter & Render Grid
+            // Grid Items
             const filtered = state.items.filter(i => i.parentId === state.currentFolderId)
-                .sort((a, b) => a.type === 'folder' && b.type !== 'folder' ? -1 : a.name.localeCompare(b.name));
+                .sort((a, b) => {
+                    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
 
             if (filtered.length === 0) {
                 container.innerHTML = `
-                    <div class="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-white/50">
-                        <p class="text-slate-400 font-medium">Empty folder. Add a report to get started.</p>
+                    <div class="col-span-full py-24 text-center border-2 border-dashed border-slate-200 rounded-[2rem] bg-white/50 flex flex-col items-center">
+                        <div class="bg-slate-100 p-6 rounded-full mb-4 text-slate-300"><i data-lucide="folder-open" class="w-12 h-12"></i></div>
+                        <h3 class="text-slate-800 font-bold text-lg mb-1">Folder is Empty</h3>
+                        <p class="text-slate-400 text-sm max-w-xs">Add reports or folders to organize your BI assets.</p>
                     </div>`;
             } else {
                 container.innerHTML = filtered.map(item => `
                     <div onclick="${item.type === 'folder' ? `MapsTo('${item.id}')` : `viewDashboard('${item.id}')`}" 
-                         class="bg-white border border-slate-200 p-5 rounded-2xl hover:border-blue-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer flex items-center gap-4 group relative">
-                        <div class="p-4 rounded-2xl ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}">
-                            <i data-lucide="${item.type === 'folder' ? 'folder' : 'bar-chart-2'}" class="w-7 h-7"></i>
+                         class="bg-white border border-slate-200 p-5 rounded-2xl hover:border-blue-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer flex items-center gap-4 group relative overflow-hidden">
+                        <div class="p-4 rounded-xl transition-colors ${item.type === 'folder' ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-100' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-100'}">
+                            <i data-lucide="${item.type === 'folder' ? 'folder' : 'bar-chart-2'}" class="w-6 h-6"></i>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <div class="font-bold text-slate-800 truncate">${item.name}</div>
-                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${item.type}</div>
+                            <div class="font-bold text-slate-800 truncate pr-4">${item.name}</div>
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${item.type === 'folder' ? 'Directory' : 'Report'}</div>
                         </div>
-                        <button onclick="event.stopPropagation(); deleteItem('${item.id}')" class="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 transition-all">
+                        <button onclick="event.stopPropagation(); deleteItem('${item.id}')" class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -175,41 +194,23 @@
             lucide.createIcons();
         }
 
-        // --- Actions ---
-        function navigateTo(id) {
-            state.currentFolderId = id;
-            render();
-        }
-
         function toggleModal(type) {
             const overlay = document.getElementById('modal-overlay');
             const title = document.getElementById('modal-title');
             const body = document.getElementById('modal-body');
-            
             if (!type) { overlay.classList.add('hidden'); overlay.classList.remove('flex'); return; }
-
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
-            title.innerText = `Add ${type}`;
-
+            title.innerText = `New ${type}`;
             if (type === 'folder') {
-                body.innerHTML = `<input id="f-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="Folder Name"><button onclick="saveFolder()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Create</button>`;
+                body.innerHTML = `<div class="space-y-4"><input id="f-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Folder Name" autofocus><button onclick="saveFolder()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg">Create Folder</button></div>`;
             } else if (type === 'dashboard') {
-                body.innerHTML = `
-                    <input id="d-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-3" placeholder="Report Name">
-                    <input id="d-url" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="Power BI Embed Link">
-                    <button onclick="saveDashboard()" class="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl">Save Report</button>`;
+                body.innerHTML = `<div class="space-y-4"><input id="d-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none mb-2" placeholder="Report Title"><input id="d-url" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Power BI Link"><button onclick="saveDashboard()" class="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl shadow-lg">Save Report</button></div>`;
             } else if (type === 'share') {
                 const url = state.config.baseUrl ? `${state.config.baseUrl}?id=${appId}` : window.location.href;
-                body.innerHTML = `
-                    <p class="text-sm text-slate-500 mb-4">Share this link with your team.</p>
-                    <input readonly value="${url}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4 text-xs font-mono">
-                    <button onclick="copyLink('${url}')" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl" id="copy-btn">Copy Link</button>`;
+                body.innerHTML = `<div class="space-y-4"><input readonly value="${url}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-500"><button onclick="copyLink('${url}')" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl" id="copy-btn">Copy Link</button></div>`;
             } else if (type === 'settings') {
-                body.innerHTML = `
-                    <p class="text-sm text-slate-500 mb-4">Production Base URL (e.g. your Vercel link)</p>
-                    <input id="s-url" value="${state.config.baseUrl || ''}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="https://my-bi-repo.vercel.app">
-                    <button onclick="saveSettings()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Update Config</button>`;
+                body.innerHTML = `<div class="space-y-4"><input id="s-url" value="${state.config.baseUrl}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="https://app.vercel.app"><button onclick="saveSettings()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Save Config</button></div>`;
             }
             lucide.createIcons();
         }
@@ -235,27 +236,33 @@
 
         async function saveSettings() {
             const url = document.getElementById('s-url').value;
-            await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings').set({ baseUrl: url }, { merge: true });
+            state.config.baseUrl = url;
+            localStorage.setItem('bi_repo_base_url', url);
             toggleModal(null);
         }
 
         function viewDashboard(id) {
             const item = state.items.find(i => i.id === id);
-            if (item && item.url) window.open(item.url, '_blank');
+            if (item?.url) window.open(item.url, '_blank');
         }
 
         async function deleteItem(id) {
-            if (confirm('Delete this item?')) {
-                await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id).delete();
+            if (confirm('Delete this item and its contents?')) {
+                const db = firebase.firestore();
+                const col = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items');
+                const recursiveDelete = async (targetId) => {
+                    const children = state.items.filter(i => i.parentId === targetId);
+                    for (const child of children) await recursiveDelete(child.id);
+                    await col.doc(targetId).delete();
+                };
+                await recursiveDelete(id);
             }
         }
 
         function copyLink(url) {
-            navigator.clipboard.writeText(url);
-            const btn = document.getElementById('copy-btn');
-            btn.innerText = 'Copied!';
-            btn.classList.replace('bg-blue-600', 'bg-green-500');
-            setTimeout(() => toggleModal(null), 1000);
+            const el = document.createElement('textarea'); el.value = url; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+            const btn = document.getElementById('copy-btn'); btn.innerText = 'Copied!'; btn.classList.replace('bg-blue-600', 'bg-green-500');
+            setTimeout(() => toggleModal(null), 1200);
         }
 
         window.onload = init;
