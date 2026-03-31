@@ -3,349 +3,262 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BI Repository</title>
-    <!-- Tailwind CSS -->
+    <title>BI Repository | Centralized Dashboards</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Firebase SDKs (Compat version) -->
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-
-    <!-- React and ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX parsing -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .glass-effect { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); }
+        .loader { border: 3px solid #f3f3f3; border-top: 3px solid #2563eb; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="bg-slate-50">
-    <div id="root"></div>
+<body class="bg-[#F8FAFC] text-slate-900">
+    <div id="app" class="min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="glass-effect border-b border-slate-200 px-6 h-16 flex items-center justify-between sticky top-0 z-40">
+            <div class="flex items-center gap-3">
+                <div class="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-200">
+                    <i data-lucide="layout-dashboard" class="text-white w-5 h-5"></i>
+                </div>
+                <h1 class="font-bold text-lg tracking-tight">BI Repository</h1>
+            </div>
+            <div class="flex gap-2" id="header-actions">
+                <button onclick="toggleModal('share')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 transition-all active:scale-95 shadow-md">
+                    <i data-lucide="share-2" class="w-4 h-4"></i> Share
+                </button>
+                <button onclick="toggleModal('settings')" class="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </header>
 
-    <script type="text/babel">
-        // Ensure global variables are available
-        const { useState, useEffect, useMemo } = React;
+        <!-- Main Content -->
+        <main class="flex-1 max-w-6xl w-full mx-auto p-6">
+            <!-- Breadcrumbs -->
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <nav id="breadcrumbs" class="flex items-center gap-2 text-sm text-slate-500 overflow-x-auto whitespace-nowrap py-2">
+                    <!-- Dynamic Breadcrumbs -->
+                </nav>
+                <div class="flex gap-2">
+                    <button onclick="toggleModal('folder')" class="bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">New Folder</button>
+                    <button onclick="toggleModal('dashboard')" class="bg-slate-900 hover:bg-black text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-lg">+ Add Report</button>
+                </div>
+            </div>
 
-        // --- Firebase Initializer ---
-        const firebaseConfig = JSON.parse(__firebase_config || '{}');
-        if (window.firebase && !window.firebase.apps.length && firebaseConfig.apiKey) {
-            window.firebase.initializeApp(firebaseConfig);
-        }
+            <!-- Grid Container -->
+            <div id="grid-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                <!-- Items will be injected here -->
+                <div class="col-span-full py-20 flex flex-col items-center justify-center opacity-50">
+                    <div class="loader mb-4"></div>
+                    <p>Loading repository...</p>
+                </div>
+            </div>
+        </main>
+    </div>
 
-        const auth = window.firebase ? window.firebase.auth() : null;
-        const db = window.firebase ? window.firebase.firestore() : null;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'global-bi-repo';
+    <!-- Modals Container -->
+    <div id="modal-overlay" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                <h2 id="modal-title" class="font-bold text-slate-800 uppercase text-[10px] tracking-widest">Modal</h2>
+                <button onclick="toggleModal(null)" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div id="modal-body" class="p-6">
+                <!-- Dynamic Modal Content -->
+            </div>
+        </div>
+    </div>
 
-        // Custom Icon wrapper with safety checks for Lucide library
-        const Icon = ({ name, size = 20, className = "" }) => {
-            useEffect(() => {
-                if (window.lucide) {
-                    window.lucide.createIcons();
-                }
-            }, [name]);
-
-            if (!window.lucide || !window.lucide[name]) {
-                return <span className={className} style={{ width: size, height: size, display: 'inline-block' }}></span>;
-            }
-            const LucideIcon = window.lucide[name];
-            return <LucideIcon size={size} className={className} />;
+    <script>
+        // --- State Management ---
+        let state = {
+            user: null,
+            items: [],
+            currentFolderId: null,
+            config: { baseUrl: '' },
+            isSaving: false
         };
 
-        function App() {
-            const [user, setUser] = useState(null);
-            const [items, setItems] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [currentFolderId, setCurrentFolderId] = useState(null);
-            const [cloudBaseUrl, setCloudBaseUrl] = useState('');
-            const [isSaving, setIsSaving] = useState(false);
-            const [copied, setCopied] = useState(false);
-            const [activeModal, setActiveModal] = useState(null); 
-            const [selectedItem, setSelectedItem] = useState(null);
-            const [formData, setFormData] = useState({ name: '', url: '', baseUrl: '' });
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'global-bi-repo';
+        const firebaseConfig = JSON.parse(__firebase_config || '{}');
 
-            // Auth Effect
-            useEffect(() => {
-                if (!auth) {
-                    setLoading(false);
-                    return;
-                }
-                const unsubscribe = auth.onAuthStateChanged(async (u) => {
-                    if (!u) {
-                        try {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await auth.signInWithCustomToken(__initial_auth_token);
-                            } else {
-                                await auth.signInAnonymously();
-                            }
-                        } catch (e) { console.error("Auth Error", e); }
+        // --- Initialization ---
+        async function init() {
+            if (firebaseConfig.apiKey) {
+                firebase.initializeApp(firebaseConfig);
+                const auth = firebase.auth();
+                const db = firebase.firestore();
+
+                auth.onAuthStateChanged(async (user) => {
+                    if (!user) {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await auth.signInWithCustomToken(__initial_auth_token);
+                        } else {
+                            await auth.signInAnonymously();
+                        }
                     }
-                    setUser(u);
+                    state.user = user;
+                    setupListeners(db);
                 });
-                return () => unsubscribe();
-            }, []);
+            }
+        }
 
-            // Data Sync Effect
-            useEffect(() => {
-                if (!user || !db) return;
+        function setupListeners(db) {
+            const rootRef = db.collection('artifacts').doc(appId).collection('public').doc('data');
+            
+            // Listen for items
+            rootRef.collection('repository_items').onSnapshot(snap => {
+                state.items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                render();
+            });
 
-                const itemsCollection = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items');
-                const unsubItems = itemsCollection.onSnapshot((snap) => {
-                    setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                    setLoading(false);
-                }, (err) => {
-                    console.error("Firestore Items Error:", err);
-                    setLoading(false);
-                });
+            // Listen for config
+            rootRef.collection('config').doc('settings').onSnapshot(doc => {
+                if (doc.exists) state.config = doc.data();
+                render();
+            });
+        }
 
-                const configDoc = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings');
-                const unsubConfig = configDoc.onSnapshot((d) => {
-                    if (d.exists) {
-                        const url = d.data().baseUrl || '';
-                        setCloudBaseUrl(url);
-                        setFormData(prev => ({ ...prev, baseUrl: url }));
-                    }
-                });
-
-                return () => { unsubItems(); unsubConfig(); };
-            }, [user]);
-
-            const shareUrl = useMemo(() => {
-                if (cloudBaseUrl) {
-                    const cleanBase = cloudBaseUrl.split('?')[0].replace(/\/$/, "");
-                    return `${cleanBase}?id=${appId}`;
+        // --- UI Logic ---
+        function render() {
+            const container = document.getElementById('grid-container');
+            const breadcrumbNav = document.getElementById('breadcrumbs');
+            
+            // Render Breadcrumbs
+            let crumbs = `<button onclick="navigateTo(null)" class="hover:text-blue-600 flex items-center gap-1 ${!state.currentFolderId ? 'font-bold text-blue-600' : ''}"><i data-lucide="home" class="w-3.5 h-3.5"></i> Root</button>`;
+            if (state.currentFolderId) {
+                let current = state.currentFolderId;
+                let path = [];
+                while (current) {
+                    const found = state.items.find(i => i.id === current);
+                    if (found) { path.unshift(found); current = found.parentId; } else break;
                 }
-                return `${window.location.origin}${window.location.pathname}?id=${appId}`;
-            }, [cloudBaseUrl]);
+                path.forEach(p => {
+                    crumbs += `<i data-lucide="chevron-right" class="w-3.5 h-3.5 text-slate-300"></i><button onclick="navigateTo('${p.id}')" class="hover:text-blue-600 truncate max-w-[120px]">${p.name}</button>`;
+                });
+            }
+            breadcrumbNav.innerHTML = crumbs;
 
-            const currentItems = items.filter(i => i.parentId === currentFolderId)
+            // Filter & Render Grid
+            const filtered = state.items.filter(i => i.parentId === state.currentFolderId)
                 .sort((a, b) => a.type === 'folder' && b.type !== 'folder' ? -1 : a.name.localeCompare(b.name));
 
-            const breadcrumbs = useMemo(() => {
-                const trail = [];
-                let curr = currentFolderId;
-                while (curr) {
-                    const f = items.find(i => i.id === curr);
-                    if (f) { trail.unshift(f); curr = f.parentId; }
-                    else break;
-                }
-                return trail;
-            }, [items, currentFolderId]);
-
-            const saveSettings = async (e) => {
-                e.preventDefault();
-                if (!db) return;
-                setIsSaving(true);
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings')
-                        .set({ baseUrl: formData.baseUrl }, { merge: true });
-                    setActiveModal(null);
-                } catch (err) { console.error(err); } finally { setIsSaving(false); }
-            };
-
-            const addFolder = async (e) => {
-                e.preventDefault();
-                if (!formData.name.trim() || !db) return;
-                setIsSaving(true);
-                try {
-                    const id = crypto.randomUUID();
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id)
-                        .set({
-                            type: 'folder', 
-                            name: formData.name, 
-                            parentId: currentFolderId, 
-                            createdAt: new Date().toISOString()
-                        });
-                    setFormData({ ...formData, name: '' });
-                    setActiveModal(null);
-                } catch (err) { console.error(err); } finally { setIsSaving(false); }
-            };
-
-            const addDashboard = async (e) => {
-                e.preventDefault();
-                if (!formData.name.trim() || !formData.url.trim() || !db) return;
-                setIsSaving(true);
-                try {
-                    const id = crypto.randomUUID();
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id)
-                        .set({
-                            type: 'dashboard', 
-                            name: formData.name, 
-                            url: formData.url, 
-                            parentId: currentFolderId, 
-                            createdAt: new Date().toISOString()
-                        });
-                    setFormData({ ...formData, name: '', url: '' });
-                    setActiveModal(null);
-                } catch (err) { console.error(err); } finally { setIsSaving(false); }
-            };
-
-            const handleDelete = async () => {
-                if (!selectedItem || !db) return;
-                setIsSaving(true);
-                try {
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(selectedItem.id).delete();
-                    setSelectedItem(null);
-                    setActiveModal(null);
-                } catch (err) { console.error(err); } finally { setIsSaving(false); }
-            };
-
-            if (loading) return (
-                <div className="h-screen flex flex-col items-center justify-center gap-4 bg-white">
-                    <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-bold text-slate-400 animate-pulse">Syncing Database...</p>
-                </div>
-            );
-
-            return (
-                <div className="min-h-screen flex flex-col">
-                    <header className="bg-white border-b px-6 h-16 flex items-center justify-between sticky top-0 z-30 shadow-sm">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-blue-600 p-2 rounded-lg"><Icon name="Layout" className="text-white" size={20} /></div>
-                            <h1 className="font-bold text-xl tracking-tight text-slate-800">BI Repository</h1>
+            if (filtered.length === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-white/50">
+                        <p class="text-slate-400 font-medium">Empty folder. Add a report to get started.</p>
+                    </div>`;
+            } else {
+                container.innerHTML = filtered.map(item => `
+                    <div onclick="${item.type === 'folder' ? `MapsTo('${item.id}')` : `viewDashboard('${item.id}')`}" 
+                         class="bg-white border border-slate-200 p-5 rounded-2xl hover:border-blue-500 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer flex items-center gap-4 group relative">
+                        <div class="p-4 rounded-2xl ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}">
+                            <i data-lucide="${item.type === 'folder' ? 'folder' : 'bar-chart-2'}" class="w-7 h-7"></i>
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => setActiveModal('share')} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors shadow-md active:scale-95"><Icon name="Share2" size={16} /> Share</button>
-                            <button onClick={() => setActiveModal('settings')} className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors"><Icon name="Settings" size={20} /></button>
+                        <div class="flex-1 min-w-0">
+                            <div class="font-bold text-slate-800 truncate">${item.name}</div>
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">${item.type}</div>
                         </div>
-                    </header>
-
-                    <main className="flex-1 max-w-6xl w-full mx-auto p-6 md:p-8">
-                        {!cloudBaseUrl && (
-                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl mb-8 flex items-center gap-3">
-                                <Icon name="AlertTriangle" className="text-amber-600" size={20} /> 
-                                <div className="text-sm text-amber-800 flex-1">
-                                    <span className="font-bold">Share Link not set.</span> Visit settings to enable collaborative sharing.
-                                </div>
-                                <button onClick={() => setActiveModal('settings')} className="text-xs font-bold bg-amber-600 text-white px-3 py-1.5 rounded-md">Settings</button>
-                            </div>
-                        )}
-
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
-                            <nav className="flex items-center gap-2 text-sm text-slate-500 no-scrollbar overflow-x-auto whitespace-nowrap">
-                                <button onClick={() => setCurrentFolderId(null)} className={`hover:text-blue-600 flex items-center gap-1 ${!currentFolderId ? 'font-bold text-blue-600' : ''}`}>
-                                    <Icon name="Home" size={14} /> Root
-                                </button>
-                                {breadcrumbs.map(f => (
-                                    <React.Fragment key={f.id}>
-                                        <Icon name="ChevronRight" size={14} className="text-slate-300" />
-                                        <button onClick={() => setCurrentFolderId(f.id)} className="hover:text-blue-600 max-w-[150px] truncate">{f.name}</button>
-                                    </React.Fragment>
-                                ))}
-                            </nav>
-                            <div className="flex gap-2">
-                                <button onClick={() => setActiveModal('folder')} className="flex-1 md:flex-none bg-white border border-slate-200 px-4 py-2 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">New Folder</button>
-                                <button onClick={() => setActiveModal('dashboard')} className="flex-1 md:flex-none bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-lg active:scale-95">+ Add Report</button>
-                            </div>
-                        </div>
-
-                        {currentItems.length > 0 ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                {currentItems.map(item => (
-                                    <div key={item.id} onClick={() => item.type === 'folder' ? setCurrentFolderId(item.id) : (setSelectedItem(item), setActiveModal('view'))}
-                                         className="bg-white border border-slate-200 p-5 rounded-2xl hover:border-blue-500 hover:shadow-xl transition-all cursor-pointer flex items-center gap-4 group relative">
-                                        <div className={`p-4 rounded-2xl ${item.type === 'folder' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
-                                            <Icon name={item.type === 'folder' ? 'Folder' : 'BarChart2'} size={28} />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="font-bold text-slate-800 truncate mb-1">{item.name}</div>
-                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.type === 'folder' ? 'Directory' : 'Report'}</div>
-                                        </div>
-                                        <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setActiveModal('delete'); }} 
-                                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
-                                            <Icon name="Trash2" size={16}/>
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="py-24 text-center border-2 border-dashed border-slate-200 rounded-3xl bg-white">
-                                <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 text-slate-300">
-                                    <Icon name="Folder" size={40} />
-                                </div>
-                                <h3 className="text-xl font-bold text-slate-800 mb-2">No items here yet</h3>
-                                <p className="text-slate-500 text-sm mb-8">Organize your Power BI reports by creating folders or adding links.</p>
-                                <button onClick={() => setActiveModal('dashboard')} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg">Upload First Report</button>
-                            </div>
-                        )}
-                    </main>
-
-                    {activeModal && (
-                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-                                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-                                    <h2 className="font-bold text-slate-800 uppercase text-xs tracking-widest">
-                                        {activeModal}
-                                    </h2>
-                                    <button onClick={() => setActiveModal(null)} className="text-slate-400 hover:text-slate-600"><Icon name="X" size={20}/></button>
-                                </div>
-                                <div className="p-6">
-                                    {activeModal === 'share' && (
-                                        <div className="space-y-4">
-                                            <p className="text-sm text-slate-500">Copy this link to share the repository.</p>
-                                            <input readOnly value={shareUrl} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" />
-                                            <button onClick={() => { navigator.clipboard.writeText(shareUrl); setCopied(true); setTimeout(()=>setCopied(false), 2000); }} 
-                                                    className={`w-full py-4 rounded-2xl font-bold text-white ${copied ? 'bg-green-500' : 'bg-blue-600'}`}>
-                                                {copied ? 'Copied' : 'Copy Share Link'}
-                                            </button>
-                                        </div>
-                                    )}
-                                    {activeModal === 'settings' && (
-                                        <form onSubmit={saveSettings} className="space-y-4">
-                                            <input required value={formData.baseUrl} onChange={e => setFormData({...formData, baseUrl: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="https://myapp.vercel.app" />
-                                            <button disabled={isSaving} className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl">Save Config</button>
-                                        </form>
-                                    )}
-                                    {activeModal === 'folder' && (
-                                        <form onSubmit={addFolder} className="space-y-4">
-                                            <input autoFocus required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Folder Name" />
-                                            <button disabled={isSaving} className="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Create Directory</button>
-                                        </form>
-                                    )}
-                                    {activeModal === 'dashboard' && (
-                                        <form onSubmit={addDashboard} className="space-y-4">
-                                            <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Report Name" />
-                                            <input type="url" required value={formData.url} onChange={e => setFormData({...formData, url: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl" placeholder="Power BI Link" />
-                                            <button disabled={isSaving} className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl">Save Report</button>
-                                        </form>
-                                    )}
-                                    {activeModal === 'view' && selectedItem && (
-                                        <div className="text-center">
-                                            <h3 className="text-2xl font-bold text-slate-800 mb-6">{selectedItem.name}</h3>
-                                            <a href={selectedItem.url} target="_blank" rel="noopener noreferrer" 
-                                               className="block w-full py-4 bg-blue-600 text-white font-bold rounded-2xl shadow-lg">
-                                                Open Dashboard
-                                            </a>
-                                        </div>
-                                    )}
-                                    {activeModal === 'delete' && (
-                                        <div className="text-center">
-                                            <p className="mb-6 font-bold">Delete this item?</p>
-                                            <div className="flex gap-3">
-                                                <button onClick={() => setActiveModal(null)} className="flex-1 py-3 text-slate-400">Cancel</button>
-                                                <button onClick={handleDelete} className="flex-1 py-3 bg-red-500 text-white rounded-xl">Delete</button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
+                        <button onclick="event.stopPropagation(); deleteItem('${item.id}')" class="opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-red-500 transition-all">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+            lucide.createIcons();
         }
 
-        // Final sanity check before rendering
-        if (window.ReactDOM && window.ReactDOM.createRoot) {
-            const root = ReactDOM.createRoot(document.getElementById('root'));
-            root.render(<App />);
+        // --- Actions ---
+        function navigateTo(id) {
+            state.currentFolderId = id;
+            render();
         }
+
+        function toggleModal(type) {
+            const overlay = document.getElementById('modal-overlay');
+            const title = document.getElementById('modal-title');
+            const body = document.getElementById('modal-body');
+            
+            if (!type) { overlay.classList.add('hidden'); overlay.classList.remove('flex'); return; }
+
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            title.innerText = `Add ${type}`;
+
+            if (type === 'folder') {
+                body.innerHTML = `<input id="f-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="Folder Name"><button onclick="saveFolder()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Create</button>`;
+            } else if (type === 'dashboard') {
+                body.innerHTML = `
+                    <input id="d-name" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-3" placeholder="Report Name">
+                    <input id="d-url" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="Power BI Embed Link">
+                    <button onclick="saveDashboard()" class="w-full py-4 bg-slate-900 text-white font-bold rounded-2xl">Save Report</button>`;
+            } else if (type === 'share') {
+                const url = state.config.baseUrl ? `${state.config.baseUrl}?id=${appId}` : window.location.href;
+                body.innerHTML = `
+                    <p class="text-sm text-slate-500 mb-4">Share this link with your team.</p>
+                    <input readonly value="${url}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4 text-xs font-mono">
+                    <button onclick="copyLink('${url}')" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl" id="copy-btn">Copy Link</button>`;
+            } else if (type === 'settings') {
+                body.innerHTML = `
+                    <p class="text-sm text-slate-500 mb-4">Production Base URL (e.g. your Vercel link)</p>
+                    <input id="s-url" value="${state.config.baseUrl || ''}" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl mb-4" placeholder="https://my-bi-repo.vercel.app">
+                    <button onclick="saveSettings()" class="w-full py-4 bg-blue-600 text-white font-bold rounded-2xl">Update Config</button>`;
+            }
+            lucide.createIcons();
+        }
+
+        async function saveFolder() {
+            const name = document.getElementById('f-name').value;
+            if (!name) return;
+            await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').add({
+                name, type: 'folder', parentId: state.currentFolderId, createdAt: new Date().toISOString()
+            });
+            toggleModal(null);
+        }
+
+        async function saveDashboard() {
+            const name = document.getElementById('d-name').value;
+            const url = document.getElementById('d-url').value;
+            if (!name || !url) return;
+            await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').add({
+                name, url, type: 'dashboard', parentId: state.currentFolderId, createdAt: new Date().toISOString()
+            });
+            toggleModal(null);
+        }
+
+        async function saveSettings() {
+            const url = document.getElementById('s-url').value;
+            await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('config').doc('settings').set({ baseUrl: url }, { merge: true });
+            toggleModal(null);
+        }
+
+        function viewDashboard(id) {
+            const item = state.items.find(i => i.id === id);
+            if (item && item.url) window.open(item.url, '_blank');
+        }
+
+        async function deleteItem(id) {
+            if (confirm('Delete this item?')) {
+                await firebase.firestore().collection('artifacts').doc(appId).collection('public').doc('data').collection('repository_items').doc(id).delete();
+            }
+        }
+
+        function copyLink(url) {
+            navigator.clipboard.writeText(url);
+            const btn = document.getElementById('copy-btn');
+            btn.innerText = 'Copied!';
+            btn.classList.replace('bg-blue-600', 'bg-green-500');
+            setTimeout(() => toggleModal(null), 1000);
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
